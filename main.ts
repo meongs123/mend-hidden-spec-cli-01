@@ -723,16 +723,16 @@ function parseV4a(lines: string[], strict: boolean): Edit[] {
     if (line.startsWith('*** Add File: ')) {
       const path = line.slice('*** Add File: '.length).trim();
       i += 1;
-      const fileLines: string[] = [];
+      const rawStart = i;
       while (i < last) {
         const l = lines[i]!;
         if (isSectionHead(l)) break;
-        if (l.startsWith('+')) fileLines.push(l.slice(1));
-        else if (l === '') fileLines.push('');
+        if (l.startsWith('+') || l === '') i += 1;
         else throw new Exit2(`error: parse ${i + 1}`);
-        i += 1;
       }
-      while (fileLines.length > 0 && fileLines[fileLines.length - 1] === '') fileLines.pop();
+      const raw = lines.slice(rawStart, i);
+      while (raw.length > 0 && raw[raw.length - 1] === '') raw.pop();
+      const fileLines = raw.map((l) => (l.startsWith('+') ? l.slice(1) : ''));
       edits.push(v4aAddEdit(path, fileLines));
       continue;
     }

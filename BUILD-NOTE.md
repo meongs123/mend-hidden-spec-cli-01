@@ -81,6 +81,34 @@ Entry for make.fun bounty `hidden-spec-cli-01-run-20261122` ("mend", SPEC v1).
   the `R` line. Everything else is `A`/`D`/`M` by before/after bytes, in
   UTF-8 byte order of the path.
 
+## Fix: V4A Add File trailing `+` empty lines (F1, 2026-11-22)
+
+- **Finding (Red Team, REVISION REQUIRED).** `parseV4a`'s Add File branch
+  stripped trailing `''` from the *interpreted* file lines, so a trailing
+  `+` patch line (an empty line of the file, SPEC §8) was dropped:
+  `+alpha` / `+` / End produced `alpha\n` instead of `alpha\n\n`. The
+  same failure hit Add with only `+` lines, `+alpha` / `+` / bare-blank /
+  End, and `+alpha` / `+` mid-patch before the next section. Every other
+  branch kept trailing empty lines (SR create `['a','']` → `a\n\n`,
+  unified creation trailing `+` → `alpha\n\n`); only V4A Add popped them.
+- **Fix.** The Add File branch now collects its raw patch lines first,
+  strips trailing blank (empty-string) *raw* lines — the same pattern the
+  Update branch already uses — and only then interprets them into file
+  lines (`+<line>` → `<line>`, bare empty → `''`). Interpreted file lines
+  are never popped. No other branch changed.
+- **Verified (byte-exact, fresh temp dir per case).**
+  - `+alpha` / `+` / End → `alpha\n\n` (hex `616c7068610a0a`)
+  - `+` / `+` / End → `\n\n` (hex `0a0a`)
+  - `+alpha` / `+` / bare-blank / End → `alpha\n\n` (the bare blank is
+    the section terminator, not a file line)
+  - `+alpha` / `+` mid-patch before the next section → `alpha\n\n`
+    (other file in the same patch unaffected, `x\n`)
+  - Guard: `+alpha` followed only by bare blanks → `alpha\n` (trailing
+    bare blanks still stripped); Update branch trailing-blank behaviour
+    unchanged.
+- **Regression.** Full kit practice set re-run after the fix:
+  **100 of 100 passed, practice score 1000** (no change).
+
 ## Verification
 
 - Kit practice set: **100 of 100 passed, practice score 1000**
