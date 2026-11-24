@@ -789,7 +789,10 @@ function parseV4a(lines: string[], strict: boolean): Edit[] {
           continue;
         }
         if (l === '' || l.startsWith(' ') || l.startsWith('-') || l.startsWith('+')) {
-          if (chunk === null) chunk = { anchor: null, items: [], eof: false };
+          if (chunk === null) {
+            if (chunks.length > 0) throw new Exit2(`error: parse ${rawStart + k + 1}`);
+            chunk = { anchor: null, items: [], eof: false };
+          }
           const kind: BodyItem['kind'] = l === '' || l[0] === ' ' ? 'ctx' : l[0] === '-' ? 'old' : 'new';
           chunk.items.push({ kind, text: l === '' ? '' : l.slice(1) });
           continue;
