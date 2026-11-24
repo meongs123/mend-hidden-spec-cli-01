@@ -150,3 +150,69 @@ Entry for make.fun bounty `hidden-spec-cli-01-run-20261122` ("mend", SPEC v1).
   readings above are the best literal interpretations available, but
   several (notably the three listed first) have no practice check to
   confirm them against the house reference.
+
+## Hardening pass (run 2, 2026-11-24 — surgical, no rewrite)
+
+Baseline locked in first: working copy verified at `633579b`, remote HEAD
+matched, `main.ts` snapshotted to `~/workspace/makefun/mend-baseline-633579b/`,
+full kit practice grade under Node 22 **100 of 100, score 1000** before any
+change. Three residual ambiguities decided as written verdicts, each with a
+failing-then-passing test (harness `~/workspace/makefun/mend-hardening-tests.mjs`,
+25 cases, expected outcomes written before running):
+
+- **Verdict (a) — chained-move R lines (§2): OLD BEHAVIOR WRONG, FIXED.**
+  SPEC §2: "`R <old> -> <new>` a file moved by a move edit ... that
+  succeeded, when `<old>` existed before the patch and does not after it,
+  and `<new>` did not exist before it and does after it." All four
+  conditions are patch-level. The old code checked only three (it never
+  verified the old path existed before the patch), so A→B→C reported
+  `R B -> C` although B never existed before the patch, and create-then-move
+  reported `R A -> B` although A never existed before it. Fix: the R
+  qualification now also requires `tree.content(m.old) !== null`. Tests A1
+  (chained move → `D a.txt` + `A c.txt`) and A2 (create-then-move →
+  `A b.txt`); controls A3 (single move still `R`) and A4 (move-then-modify
+  still `R`) unchanged.
+- **Verdict (b) — V4A EOF-chunk tier (§8 + §5): OLD BEHAVIOR WRONG, FIXED.**
+  SPEC §8: "The chunk takes the first occurrence of O at or after the
+  cursor, at the first tier with one; an end-of-file chunk takes only an
+  occurrence that ends at the file's last line." §5 fixes the tier as "the
+  first of three tiers at which it occurs at least once" — an unqualified
+  occurrence — so the tier is set among all occurrences at/after the cursor
+  and the EOF sentence only restricts which occurrence is taken at that
+  tier. The old code chose the tier among EOF-ending occurrences only, so a
+  chunk whose tier-0 occurrence sat off-EOF succeeded via tier 2 instead of
+  failing. Fix: `findOcc` no longer takes an EOF filter (parameter removed);
+  the V4A update path takes the EOF-ending position at the found tier and
+  fails `no-match` when there is none. Test B1 (tier-0 hit off-EOF +
+  tier-2 hit at EOF → `no-match`, file unchanged); controls B2 (no tier-0
+  hit, tier-2 EOF hit → succeeds) and B3 (non-EOF chunk unchanged).
+- **Verdict (c) — `*** End of File` with no chunk (§8): OLD BEHAVIOR
+  CORRECT, NO CODE CHANGE.** "A `*** End of File` line ends a chunk and
+  anchors it to the end of the file" presupposes an open chunk, and a chunk
+  only "starts at an `@@` line ... or, for the first chunk, at a body line",
+  so a bare End of File starts and ends nothing and falls under "Any other
+  line is `error: parse <its line>`". Test C1 proves `error: parse 3`;
+  C2 proves the neighboring valid form (`@@` + End of File = valid empty
+  EOF chunk, `ok: 0 files`).
+- **Extra fix — V4A Add trailing blank lines (§8 intro):** "Blank lines at
+  the end of a section ... are not part of it", blank = empty or only
+  whitespace. The Add branch stripped only empty (`''`) trailing raw lines,
+  so a trailing whitespace-only line threw a parse error. Fix: collect raw
+  lines, strip trailing blank lines, then validate each remaining line
+  (`+` or empty, else parse at its line). Tests D1 (trailing ws-only line
+  stripped, file `alpha\n`) and D2 (middle ws-only line still parse error).
+
+Other hardening areas re-checked sentence-by-sentence with tests and found
+already correct (no change): unified nearest-hunk + tie-break to earlier
+(U1), `\` + EOF interaction incl. `\` after a `-` line inert (U2–U4), CRLF
+preservation (U5), drift accumulation between hunks (U6), empty-O insert
+clamping (U7), tier-2 re-indent leaving empty/ws-only new lines as-is (S1),
+S/R path fallback + first-block-no-path parse error (S2–S3), S/R ambiguous
+(S4), V4A anchor/cursor (V1), empty-O insert at cursor vs EOF (V2), V4A
+Move to (V3).
+
+**Verification after the pass.** Harness 25/25; kit practice grade under
+Node 22 **100 of 100, score 1000**, run twice with identical results
+(deterministic). `runner.ts` untouched (sha256 matches the kit). `main.ts`
+31,829 bytes, within the 1 MiB cap. Commit on top of `633579b`, pushed;
+remote HEAD equals local HEAD, tree clean.

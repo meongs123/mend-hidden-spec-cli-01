@@ -144,9 +144,8 @@ interface Found {
 }
 
 /** The first tier at which O occurs in `lines` (at or after `from`), and
- *  every occurrence position at that tier (absolute, overlapping allowed).
- *  With `eofOnly` only occurrences ending at the file's last line count. */
-function findOcc(O: string[], lines: string[], strict: boolean, from = 0, eofOnly = false): Found | null {
+ *  every occurrence position at that tier (absolute, overlapping allowed). */
+function findOcc(O: string[], lines: string[], strict: boolean, from = 0): Found | null {
   const tiers = strict ? [0] : [0, 1, 2];
   for (const t of tiers) {
     const normO = O.map((l) => norm(l, t));
@@ -154,7 +153,6 @@ function findOcc(O: string[], lines: string[], strict: boolean, from = 0, eofOnl
     const pos: number[] = [];
     const last = lines.length - O.length;
     for (let i = from; i <= last; i++) {
-      if (eofOnly && i + O.length !== lines.length) continue;
       let ok = true;
       for (let j = 0; j < O.length; j++) {
         if (normF[i + j] !== normO[j]) {
@@ -682,10 +680,15 @@ function v4aUpdateEdit(path: string, moveTo: string | null, chunks: VChunk[], st
           model.lines,
           strict,
           cursor,
-          ch.eof,
         );
         if (!found) throw new Fail('no-match', path);
-        const pos = found.positions[0]!;
+        // SPEC section 8: the tier is the first tier with an occurrence
+        // (section 5); an end-of-file chunk takes only an occurrence that
+        // ends at the file's last line, at that tier.
+        const pos = ch.eof
+          ? found.positions.find((p) => p + o.length === model.lines.length)
+          : found.positions[0]!;
+        if (pos === undefined) throw new Fail('no-match', path);
         const rep = buildNew(n, o, model.lines, pos, found.tier);
         model.lines.splice(pos, o.length, ...rep);
         cursor = pos + rep.length;
@@ -724,15 +727,16 @@ function parseV4a(lines: string[], strict: boolean): Edit[] {
       const path = line.slice('*** Add File: '.length).trim();
       i += 1;
       const rawStart = i;
-      while (i < last) {
-        const l = lines[i]!;
-        if (isSectionHead(l)) break;
-        if (l.startsWith('+') || l === '') i += 1;
-        else throw new Exit2(`error: parse ${i + 1}`);
-      }
+      while (i < last && !isSectionHead(lines[i]!)) i += 1;
       const raw = lines.slice(rawStart, i);
-      while (raw.length > 0 && raw[raw.length - 1] === '') raw.pop();
-      const fileLines = raw.map((l) => (l.startsWith('+') ? l.slice(1) : ''));
+      // SPEC section 8: blank lines at the end of a section are not part
+      // of it; a blank line is empty or only whitespace.
+      while (raw.length > 0 && blank(raw[raw.length - 1]!)) raw.pop();
+      const fileLines = raw.map((l, k) => {
+        if (l.startsWith('+')) return l.slice(1);
+        if (l === '') return '';
+        throw new Exit2(`error: parse ${rawStart + k + 1}`);
+      });
       edits.push(v4aAddEdit(path, fileLines));
       continue;
     }
@@ -872,7 +876,7 @@ function run(args: string[]): { code: number; out: string[] } {
   const rows: { key: string; text: string }[] = [];
   const covered = new Set<string>();
   for (const m of tree.moves) {
-    if (tree.get(m.old) === null && tree.get(m.nw) !== null && tree.content(m.nw) === null) {
+    if (tree.content(m.old) !== null && tree.get(m.old) === null && tree.get(m.nw) !== null && tree.content(m.nw) === null) {
       rows.push({ key: m.nw, text: `R ${m.old} -> ${m.nw}` });
       covered.add(m.old);
       covered.add(m.nw);
